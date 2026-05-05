@@ -1,161 +1,48 @@
-"""
-routes.py — All API route handlers.
-
-╔══════════════════════════════════════════════╗
-║  YOUR TASK: implement the four routes.       ║
-╚══════════════════════════════════════════════╝
-
-WHY A SEPARATE routes.py?
-  In real projects, main.py only creates the app and wires things together.
-  The actual logic lives in dedicated files — one per feature area.
-  This keeps files small, focused, and easy to navigate.
-  main.py imports this router and registers it with one line.
-
-THE FOUR ROUTES YOU NEED TO IMPLEMENT:
-
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │ POST /register                                                      │
-  │   Receives: RegisterRequest (username, password)                    │
-  │   1. Check if the username is already taken → return 400 if so      │
-  │   2. Hash the password (NEVER store plain text)                     │
-  │   3. Save the new User to the database                              │
-  │   4. Return a success message                                       │
-  └─────────────────────────────────────────────────────────────────────┘
-
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │ POST /login                                                         │
-  │   Receives: LoginRequest (username, password)                       │
-  │   1. Find the user in the database → return 401 if not found        │
-  │   2. Verify the password against the stored hash → 401 if wrong     │
-  │   3. Create and return a JWT token                                  │
-  └─────────────────────────────────────────────────────────────────────┘
-
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │ POST /messages                          [requires valid JWT]        │
-  │   Receives: SendMessageRequest (content, recipient)                 │
-  │   1. Encrypt the content with encrypt()                             │
-  │   2. Save a new Message row (sender=current user, recipient=...)    │
-  │   3. Return the message as MessageResponse (with decrypted content) │
-  └─────────────────────────────────────────────────────────────────────┘
-
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │ GET /messages                           [requires valid JWT]        │
-  │   1. Fetch all messages from the database                           │
-  │   2. Decrypt each message's ciphertext before returning             │
-  │   3. Return a list of MessageResponse objects                       │
-  │                                                                     │
-  │   THINK ABOUT: should a user see ALL messages, or only those        │
-  │   where they are the sender or recipient?                           │
-  └─────────────────────────────────────────────────────────────────────┘
-
-USEFUL IMPORTS ALREADY PROVIDED BELOW.
-USEFUL PATTERN — how to query the database:
-  user = db.query(User).filter(User.username == "alice").first()
-  messages = db.query(Message).order_by(Message.created_at).all()
-
-USEFUL PATTERN — how to save a new row:
-  new_user = User(username="alice", password_hash="$2b$...")
-  db.add(new_user)
-  db.commit()
-  db.refresh(new_user)   ← fills in the auto-generated id and created_at
-"""
-
 import logging
-
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-
-from .models import User, Message, get_db
-from .schemas import (
-    RegisterRequest, LoginRequest, TokenResponse,
-    SendMessageRequest, MessageResponse,
-)
-from .auth import hash_password, verify_password, create_token, require_auth
-from .crypto import encrypt, decrypt
-
+from .schemas import RegisterRequest, LoginRequest, TokenResponse, SendMessageRequest, MessageResponse
+from .services import UserService, MessageService
+from .dependencies import get_user_service, get_message_service, require_auth
+from .exceptions import ConflictError, AuthenticationError
 
 log = logging.getLogger(__name__)
 router = APIRouter()
 
 
-# ---------------------------------------------------------------------------
-# TODO 1 — Register a new user
-# ---------------------------------------------------------------------------
 @router.post("/register", status_code=status.HTTP_201_CREATED)
-def register(body: RegisterRequest, db: Session = Depends(get_db)):
-    existing_user = db.query(User).filter(User.username == body.username).first()
-    if existing_user:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username already taken")
-    
-    hashed = hash_password(body.password)
-    new_user = User(username=body.username, password_hash=hashed)
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
+def register(body: RegisterRequest, svc: UserService = Depends(get_user_service)) -> dict[str, str]:
+    '''Registers a new user. Returns 400 if username is already taken.'''
+    try:
+        svc.register(body.username, body.password)
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=e.message)
     return {"message": "User created successfully"}
 
 
-# ---------------------------------------------------------------------------
-# TODO 2 — Login and receive a JWT token
-# ---------------------------------------------------------------------------
 @router.post("/login", response_model=TokenResponse)
-def login(body: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == body.username).first()
-    if not user or not verify_password(body.password, user.password_hash):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
-    
-    token = create_token(user.username)
+def login(body: LoginRequest, svc: UserService = Depends(get_user_service)) -> dict[str, str]:
+    '''Validates credentials and returns a JWT token. Returns 401 if invalid.'''
+    try:
+        token = svc.login(body.username, body.password)
+    except AuthenticationError as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=e.message)
     return {"access_token": token, "token_type": "bearer"}
 
 
-# ---------------------------------------------------------------------------
-# TODO 3 — Send a message (authenticated)
-# ---------------------------------------------------------------------------
 @router.post("/messages", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
 def send_message(
     body: SendMessageRequest,
-    db: Session = Depends(get_db),
+    svc: MessageService = Depends(get_message_service),
     username: str = Depends(require_auth),
-):
-    encrypted_content = encrypt(body.content)
-    new_message = Message(
-        sender=username,
-        recipient=body.recipient,
-        ciphertext=encrypted_content
-    )
-    db.add(new_message)
-    db.commit()
-    db.refresh(new_message)
-    
-    return {
-        "id": new_message.id,
-        "sender": new_message.sender,
-        "recipient": new_message.recipient,
-        "content": body.content,
-        "created_at": new_message.created_at
-    }
+) -> MessageResponse:
+    '''Sends an encrypted message. Requires authentication.'''
+    return svc.send(body.content, username, body.recipient)
 
 
-# ---------------------------------------------------------------------------
-# TODO 4 — Fetch messages (authenticated)
-# ---------------------------------------------------------------------------
 @router.get("/messages", response_model=list[MessageResponse])
 def get_messages(
-    db: Session = Depends(get_db),
+    svc: MessageService = Depends(get_message_service),
     username: str = Depends(require_auth),
-):
-    messages = db.query(Message).filter(
-        (Message.sender == username) | (Message.recipient == username)
-    ).order_by(Message.created_at).all()
-    
-    results = []
-    for msg in messages:
-        decrypted_content = decrypt(msg.ciphertext)
-        results.append({
-            "id": msg.id,
-            "sender": msg.sender,
-            "recipient": msg.recipient,
-            "content": decrypted_content,
-            "created_at": msg.created_at
-        })
-    return results
+) -> list[MessageResponse]:
+    '''Fetches all messages for the authenticated user (sent or received), decrypted.'''
+    return svc.get_messages(username)

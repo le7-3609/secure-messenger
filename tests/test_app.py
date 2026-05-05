@@ -2,8 +2,8 @@
 test_app.py — Stage 1 test suite.
 
 ╔══════════════════════════════════════════════════════════════════════╗
-║  YOUR TASK: the test structure is given. Some tests are complete,   ║
-║  others have a TODO for you to finish.                              ║
+║  YOUR TASK: the test structure is given. Some tests are complete,    ║
+║  others have a TODO for you to finish.                               ║
 ╚══════════════════════════════════════════════════════════════════════╝
 
 HOW TO RUN:
