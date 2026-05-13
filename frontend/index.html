@@ -22,10 +22,10 @@
     <h1>🔐 Secure Messenger</h1>
     <form id="auth-form">
       <label>Username
-        <input type="text" id="username" autocomplete="username" required />
+        <input type="text" id="username" autocomplete="username" minlength="3" maxlength="50" required />
       </label>
       <label>Password
-        <input type="password" id="password" autocomplete="current-password" required />
+        <input type="password" id="password" autocomplete="current-password" minlength="6" required />
       </label>
       <div class="actions">
         <button type="submit" id="btn-login">Login</button>

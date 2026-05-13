@@ -15,7 +15,11 @@ async function apiRegister(username, password) {
   });
   if (r.status === 201) return true;
   const err = await r.json();
-  showToast(err.detail ?? "Registration failed", "error");
+  const detail = err.detail;
+  const msg = Array.isArray(detail)
+    ? detail.map(e => e.msg).join("; ")
+    : (detail ?? "Registration failed");
+  showToast(msg, "error");
   return false;
 }
 
@@ -27,7 +31,11 @@ async function apiLogin(username, password) {
   });
   if (r.status === 200) return (await r.json()).access_token;
   const err = await r.json();
-  showToast(err.detail ?? "Login failed", "error");
+  const detail = err.detail;
+  const msg = Array.isArray(detail)
+    ? detail.map(e => e.msg).join("; ")
+    : (detail ?? "Login failed");
+  showToast(msg, "error");
   return null;
 }
 
