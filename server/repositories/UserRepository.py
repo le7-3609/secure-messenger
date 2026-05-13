@@ -11,6 +11,10 @@ class UserRepository:
         '''Returns the User with the given username, or None if not found.'''
         return self.db.query(User).filter(User.username == username).first()
 
+    def get_all_usernames(self) -> list[str]:
+        '''Returns a list of all registered usernames.'''
+        return [row.username for row in self.db.query(User.username).all()]
+
     def save(self, user: User) -> User:
         '''Persists a new User row and returns it with auto-generated fields populated.'''
         self.db.add(user)

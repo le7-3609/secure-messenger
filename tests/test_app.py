@@ -154,7 +154,7 @@ class TestEncryption:
     def test_messages_are_stored_encrypted(self, client):
         from server.models import Message
         token = register_and_login(client)
-        client.post("/messages", json={"content": "secret text", "recipient": "bob"}, headers=auth(token))
+        client.post("/messages", json={"content": "secret text", "recipients": ["bob"]}, headers=auth(token))
         db = TestingSession()
         row = db.query(Message).first()
         db.close()
@@ -174,11 +174,11 @@ class TestMessaging:
 
         response = client.post(
             "/messages",
-            json={"content": "hello bob", "recipient": "bob"},
+            json={"content": "hello bob", "recipients": ["bob"]},
             headers=auth(alice_token),
         )
         assert response.status_code == 201
-        data = response.json()
+        data = response.json()[0]
         assert data["content"] == "hello bob"   # returned decrypted
         assert data["sender"] == "alice"
         assert data["recipient"] == "bob"
@@ -187,7 +187,7 @@ class TestMessaging:
         alice_token = register_and_login(client, "alice", "secret123")
         register_and_login(client, "bob", "secret456")
 
-        client.post("/messages", json={"content": "hi bob", "recipient": "bob"}, headers=auth(alice_token))
+        client.post("/messages", json={"content": "hi bob", "recipients": ["bob"]}, headers=auth(alice_token))
 
         response = client.get("/messages", headers=auth(alice_token))
         assert response.status_code == 200
@@ -204,8 +204,8 @@ class TestMessaging:
         bob_token   = register_and_login(client, "bob",   "secret456")
         charlie_token = register_and_login(client, "charlie", "secret789")
 
-        client.post("/messages", json={"content": "hi bob",         "recipient": "bob"}, headers=auth(alice_token))
-        client.post("/messages", json={"content": "charlie to bob", "recipient": "bob"}, headers=auth(charlie_token))
+        client.post("/messages", json={"content": "hi bob",         "recipients": ["bob"]}, headers=auth(alice_token))
+        client.post("/messages", json={"content": "charlie to bob", "recipients": ["bob"]}, headers=auth(charlie_token))
 
         alice_msgs = client.get("/messages", headers=auth(alice_token)).json()
         assert len(alice_msgs) == 1

@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     ALGORITHM: str
     TOKEN_EXPIRE_HOURS: int
     DATABASE_URL: str
+    SERVER_URL: str
 
     model_config = {"env_file": ".env"}
 
