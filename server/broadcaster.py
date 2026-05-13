@@ -25,6 +25,11 @@ class Broadcaster:
 
     def unsubscribe(self, username: str, q: asyncio.Queue) -> None:
         self._listeners[username].remove(q)
+        if not self._listeners[username]:
+            del self._listeners[username]
+
+    def active_users(self) -> list[str]:
+        return list(self._listeners.keys())
 
     async def publish(self, username: str, data: str) -> None:
         for q in self._listeners[username]:

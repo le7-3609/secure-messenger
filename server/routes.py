@@ -62,6 +62,12 @@ def get_messages(
     return svc.get_messages(username)
 
 
+@router.get("/users/online", response_model=list[str])
+def get_online_users(bc: Broadcaster = Depends(get_broadcaster)) -> list[str]:
+    '''Returns the usernames that currently have at least one active SSE connection.'''
+    return bc.active_users()
+
+
 @router.get("/stream")
 async def stream(
     request: Request,
