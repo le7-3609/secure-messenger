@@ -18,6 +18,10 @@ HOW TESTS WORK HERE:
   wiped clean before every single test.
 """
 
+from collections import defaultdict
+import json
+import threading
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -26,6 +30,7 @@ from sqlalchemy.orm import sessionmaker
 from server.main import app
 from server.models import Base, get_db
 from server.crypto import encrypt, decrypt
+from server.dependencies import get_broadcaster
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +79,42 @@ def register_and_login(client, username="alice", password="secret123") -> str:
 
 def auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
+
+
+def parse_first_sse_payload(stream_response) -> dict:
+    for line in stream_response.iter_lines():
+        if line and line.startswith("data: "):
+            return json.loads(line[6:])
+    raise AssertionError("SSE stream ended before any event was received")
+
+
+class FakeBroadcaster:
+    def __init__(self):
+        self._events_by_user: dict[str, list[str]] = defaultdict(list)
+        self.published: list[tuple[str, dict]] = []
+        self._lock = threading.Lock()
+
+    async def publish(self, username: str, data: str) -> None:
+        parsed = json.loads(data)
+        with self._lock:
+            self._events_by_user[username].append(data)
+            self.published.append((username, parsed))
+
+    async def listen(self, username: str):
+        with self._lock:
+            events = list(self._events_by_user[username])
+        for payload in events:
+            yield payload
+
+
+@pytest.fixture
+def fake_broadcaster():
+    fake = FakeBroadcaster()
+    app.dependency_overrides[get_broadcaster] = lambda: fake
+    try:
+        yield fake
+    finally:
+        app.dependency_overrides.pop(get_broadcaster, None)
 
 
 # ===========================================================================
@@ -210,3 +251,76 @@ class TestMessaging:
         alice_msgs = client.get("/messages", headers=auth(alice_token)).json()
         assert len(alice_msgs) == 1
         assert alice_msgs[0]["content"] == "hi bob"
+
+
+# ===========================================================================
+# 4. SSE tests
+# ===========================================================================
+
+class TestSSE:
+
+    def test_sse_stream_receives_broadcast(self, client, fake_broadcaster):
+        alice_token = register_and_login(client, "alice", "secret123")
+        bob_token = register_and_login(client, "bob", "secret456")
+
+        send_response = client.post(
+            "/messages",
+            json={"content": "hello everyone", "recipients": ["*"]},
+            headers=auth(bob_token),
+        )
+        assert send_response.status_code == 201
+
+        with client.stream("GET", "/stream", headers=auth(alice_token)) as stream_response:
+            event = parse_first_sse_payload(stream_response)
+
+        assert event["sender"] == "bob"
+        assert event["content"] == "hello everyone"
+
+    def test_only_sender_sees_targeted_messages(self, client, fake_broadcaster):
+        alice_token = register_and_login(client, "alice", "secret123")
+        register_and_login(client, "bob", "secret456")
+        register_and_login(client, "charlie", "secret789")
+
+        send_response = client.post(
+            "/messages",
+            json={"content": "private to bob", "recipients": ["bob"]},
+            headers=auth(alice_token),
+        )
+        assert send_response.status_code == 201
+
+        recipients = [username for username, _ in fake_broadcaster.published]
+        assert recipients == ["bob"]
+        assert "charlie" not in recipients
+
+    def test_concurrent_clients(self, client, fake_broadcaster):
+        alice_token = register_and_login(client, "alice", "secret123")
+        bob_token = register_and_login(client, "bob", "secret456")
+
+        barrier = threading.Barrier(2)
+        responses: list[int] = []
+        responses_lock = threading.Lock()
+
+        def _send(token: str, content: str):
+            with TestClient(app) as sender_client:
+                barrier.wait(timeout=2)
+                response = sender_client.post(
+                    "/messages",
+                    json={"content": content, "recipients": ["alice", "bob"]},
+                    headers=auth(token),
+                )
+                with responses_lock:
+                    responses.append(response.status_code)
+
+        sender_1 = threading.Thread(target=_send, args=(alice_token, "from alice"), daemon=True)
+        sender_2 = threading.Thread(target=_send, args=(bob_token, "from bob"), daemon=True)
+        sender_1.start()
+        sender_2.start()
+        sender_1.join(timeout=2)
+        sender_2.join(timeout=2)
+
+        assert responses == [201, 201]
+
+        alice_events = [payload["content"] for user, payload in fake_broadcaster.published if user == "alice"]
+        bob_events = [payload["content"] for user, payload in fake_broadcaster.published if user == "bob"]
+        assert set(alice_events) == {"from alice", "from bob"}
+        assert set(bob_events) == {"from alice", "from bob"}
