@@ -34,6 +34,13 @@ class ApiClient:
         if r.status_code != 201:
             print(f"Send failed: {r.json().get('detail')}")
 
+    def get_messages(self) -> list[dict]:
+        r = httpx.get(f"{self._base}/messages", headers=self._auth_headers())
+        if r.status_code != 200:
+            print(f"Message history error: {r.text}")
+            sys.exit(1)
+        return r.json()
+
     def listen(self, stop: threading.Event, on_message: Callable[[str, str], None]) -> None:
         """Connects to GET /stream and calls on_message(sender, content) for each event."""
         try:

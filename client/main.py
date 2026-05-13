@@ -1,19 +1,42 @@
 import threading
+from getpass import getpass
 
 from .api import ApiClient
 from .config import settings
 
 
-def main() -> None:
+def prompt_auth(api: ApiClient) -> str:
     print("=== Secure Messenger ===")
-    username = input("Username: ").strip()
-    password = input("Password: ").strip()
+    print("1) Register")
+    print("2) Login")
 
-    api = ApiClient(settings.SERVER_URL)
-    api.register(username, password)
+    while True:
+        choice = input("Choose (1/2): ").strip()
+        if choice in {"1", "2"}:
+            break
+        print("Please enter 1 or 2.")
+
+    username = input("Username: ").strip()
+    password = getpass("Password: ").strip()
+
+    if choice == "1":
+        api.register(username, password)
+
     api.login(username, password)
-    print(f"Logged in as {username}. Listening for messages...")
-    print('Send:  to:<recipient>[,<recipient2>] <message>    Broadcast: to:* <message>    Quit: quit\n')
+    return username
+
+
+def main() -> None:
+    api = ApiClient(settings.SERVER_URL)
+    username = prompt_auth(api)
+    print(f"\nWelcome, {username}!  (type your message and press Enter, or 'quit' to exit)\n")
+
+    print("--- message history ---")
+    for message in api.get_messages():
+        print(f"  [{message['sender']}]: {message['content']}")
+    print("-----------------------\n")
+
+    print("Send:  to:<recipient>[,<recipient2>] <message>    Broadcast: to:* <message>    Quit: quit\n")
 
     def on_message(sender: str, content: str) -> None:
         print(f"\n  [{sender}]: {content}\n> ", end="", flush=True)
