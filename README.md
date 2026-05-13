@@ -27,6 +27,7 @@ All messages are stored **AES-256-GCM encrypted** in the database. Passwords are
 |---|---|
 | Framework | [FastAPI](https://fastapi.tiangolo.com/) |
 | Database | SQLite via [SQLAlchemy](https://www.sqlalchemy.org/) ORM |
+| Migrations | [Alembic](https://alembic.sqlalchemy.org/) |
 | Password hashing | [bcrypt](https://pypi.org/project/bcrypt/) |
 | JWT tokens | [python-jose](https://pypi.org/project/python-jose/) |
 | Encryption | [cryptography](https://pypi.org/project/cryptography/) — AES-256-GCM |
@@ -120,6 +121,36 @@ uvicorn server.main:app --reload
 ```
 
 Open the interactive API docs at: [http://localhost:8000/docs](http://localhost:8000/docs)
+
+### 🧬 Database migrations (Alembic)
+
+This project uses Alembic for schema migrations.
+
+```bash
+# apply all pending migrations
+alembic upgrade head
+```
+
+When you change SQLAlchemy models, generate and apply a migration:
+
+```bash
+alembic revision --autogenerate -m "describe_change"
+alembic upgrade head
+```
+
+Useful commands:
+
+```bash
+alembic current       # current DB revision
+alembic history       # migration history
+alembic downgrade -1  # rollback one migration
+```
+
+If you already had tables before enabling Alembic, baseline with:
+
+```bash
+alembic stamp head
+```
 
 ### 🌐 Open the browser UI
 
