@@ -137,6 +137,21 @@ python -m client.main
 Each terminal prompts for username and password, then enters chat mode.
 Type `to:<recipient> <message>` to send. Type `quit` to exit.
 
+### 🌱 Seed the database (optional)
+
+Pre-populate the database with test users and messages:
+
+```bash
+python seed.py
+```
+
+This script:
+- Creates test users: **alice**, **bob**, **charlie** (with dummy passwords)
+- Logs them in to obtain JWT tokens
+- Sends seed messages between them to pre-fill chat history
+
+**Safe to run multiple times** — existing users are skipped, not duplicated. Useful for local development and testing.
+
 ---
 
 ## 📡 API Reference
