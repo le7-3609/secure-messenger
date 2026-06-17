@@ -21,8 +21,11 @@ HOW TO RUN:
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from .models import create_tables
 from .routes import router
@@ -42,10 +45,24 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Secure Messenger — Stage 1",
+    title="Secure Messenger — Stage 2",
     description="Authenticated, encrypted REST API for private messaging",
-    version="1.0.0",
+    version="2.0.0",
     lifespan=lifespan,
 )
+
+_frontend = Path(__file__).parent.parent / "frontend"
+app.mount("/static", StaticFiles(directory=_frontend), name="static")
+
+
+@app.get("/", include_in_schema=False)
+def index():
+    return FileResponse(_frontend / "index.html")
+
+
+@app.get("/chat", include_in_schema=False)
+def chat():
+    return FileResponse(_frontend / "chat.html")
+
 
 app.include_router(router)

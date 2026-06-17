@@ -1,6 +1,7 @@
-# 🔐 Secure Messenger — Stage 1
+# 🔐 Secure Messenger
 
-A secured REST API for private messaging. Users can register, login, send encrypted messages, and read them back.
+A secured real-time messaging API with a browser UI and a CLI client.
+Users can register, login, send encrypted messages, and receive them instantly via Server-Sent Events.
 All messages are stored **AES-256-GCM encrypted** in the database. Passwords are **bcrypt hashed** and never stored in plain text.
 
 ---
@@ -10,6 +11,7 @@ All messages are stored **AES-256-GCM encrypted** in the database. Passwords are
 - **User registration & login** with bcrypt password hashing
 - **JWT authentication** — stateless, signed tokens with expiry
 - **End-to-end message encryption** using AES-256-GCM
+- **Real-time push** — messages delivered instantly via SSE, no polling
 - **Per-user message isolation** — users see only messages they sent or received
 - **Tamper detection** — GCM authentication tag rejects any modified ciphertext
 - **Layered architecture** — full dependency injection with FastAPI's `Depends`
@@ -25,18 +27,22 @@ All messages are stored **AES-256-GCM encrypted** in the database. Passwords are
 |---|---|
 | Framework | [FastAPI](https://fastapi.tiangolo.com/) |
 | Database | SQLite via [SQLAlchemy](https://www.sqlalchemy.org/) ORM |
+| Migrations | [Alembic](https://alembic.sqlalchemy.org/) |
 | Password hashing | [bcrypt](https://pypi.org/project/bcrypt/) |
 | JWT tokens | [python-jose](https://pypi.org/project/python-jose/) |
 | Encryption | [cryptography](https://pypi.org/project/cryptography/) — AES-256-GCM |
+| Real-time | [sse-starlette](https://github.com/sysid/sse-starlette) — Server-Sent Events |
 | Validation | [Pydantic v2](https://docs.pydantic.dev/) |
 | Server | [Uvicorn](https://www.uvicorn.org/) |
+| Browser UI | Vanilla JS + [Pico CSS](https://picocss.com/) — served by FastAPI |
+| CLI client | [httpx](https://www.python-httpx.org/) |
 | Testing | [pytest](https://pytest.org/) + FastAPI TestClient |
 
 ---
 
 ## 🏗️ Architecture
 
-The project follows a layered architecture with full dependency injection via FastAPI's `Depends`:
+### Server
 
 ```
 routes.py         → HTTP only (status codes, request/response)
@@ -63,7 +69,33 @@ server/
 ├── schemas.py                  # Pydantic request/response schemas
 ├── exceptions.py               # Custom exception hierarchy
 ├── crypto.py                   # AES-256-GCM encrypt/decrypt
+├── broadcaster.py              # In-memory SSE pub/sub
 └── main.py                     # App entry point
+```
+
+### Browser UI
+
+```
+frontend/
+├── index.html  # Login & register page
+├── chat.html   # Chat page (history + real-time SSE)
+└── app.js      # All API calls, SSE stream, toast notifications
+```
+
+Served statically by FastAPI — no build tools, no framework.
+
+### CLI Client
+
+```
+main.py      → UI only (terminal input/output)
+    └── api.py → HTTP/SSE transport only
+```
+
+```
+client/
+├── config.py   # SERVER_URL from environment
+├── api.py      # ApiClient — all HTTP and SSE calls
+└── main.py     # UI loop — terminal input/output only
 ```
 
 ---
@@ -90,6 +122,67 @@ uvicorn server.main:app --reload
 
 Open the interactive API docs at: [http://localhost:8000/docs](http://localhost:8000/docs)
 
+### 🧬 Database migrations (Alembic)
+
+This project uses Alembic for schema migrations.
+
+```bash
+# apply all pending migrations
+alembic upgrade head
+```
+
+When you change SQLAlchemy models, generate and apply a migration:
+
+```bash
+alembic revision --autogenerate -m "describe_change"
+alembic upgrade head
+```
+
+Useful commands:
+
+```bash
+alembic current       # current DB revision
+alembic history       # migration history
+alembic downgrade -1  # rollback one migration
+```
+
+If you already had tables before enabling Alembic, baseline with:
+
+```bash
+alembic stamp head
+```
+
+### 🌐 Open the browser UI
+
+Navigate to [http://localhost:8000](http://localhost:8000) — register or login, then start chatting.
+Messages appear in real time via SSE. Toast notifications appear on new incoming messages and errors.
+
+### 💬 Run the CLI client
+
+Open a terminal per user:
+
+```bash
+python -m client.main
+```
+
+Each terminal prompts for username and password, then enters chat mode.
+Type `to:<recipient> <message>` to send. Type `quit` to exit.
+
+### 🌱 Seed the database (optional)
+
+Pre-populate the database with test users and messages:
+
+```bash
+python seed.py
+```
+
+This script:
+- Creates test users: **alice**, **bob**, **charlie** (with dummy passwords)
+- Logs them in to obtain JWT tokens
+- Sends seed messages between them to pre-fill chat history
+
+**Safe to run multiple times** — existing users are skipped, not duplicated. Useful for local development and testing.
+
 ---
 
 ## 📡 API Reference
@@ -100,6 +193,7 @@ Open the interactive API docs at: [http://localhost:8000/docs](http://localhost:
 | `POST` | `/login` | ❌ | Login and receive a JWT token |
 | `POST` | `/messages` | ✅ | Send an encrypted message |
 | `GET` | `/messages` | ✅ | Fetch your messages (decrypted) |
+| `GET` | `/stream` | ✅ | SSE stream — receive messages in real time |
 
 ### 💡 Example flow
 
@@ -122,6 +216,10 @@ curl -X POST http://localhost:8000/messages \
 
 # Read messages
 curl http://localhost:8000/messages \
+  -H "Authorization: Bearer <token>"
+
+# Open SSE stream (stays open, receives pushed events)
+curl http://localhost:8000/stream \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -153,16 +251,17 @@ The test suite covers:
 | Tokens | JWT signed with HS256, expire after 24 hours |
 | Tamper detection | GCM auth tag raises exception on any modification |
 | DB theft | Attacker sees only hashes and ciphertext |
+| SSE stream | Protected by the same JWT `require_auth` dependency |
 
 > ⚠️ The AES key is generated in memory at startup (`os.urandom(32)`). Restarting the server makes existing messages unreadable. For production, load the key from an environment variable or a secrets manager (e.g. AWS Secrets Manager).
 
-> ⚠️ `SECRET_KEY` in `auth.py` should be replaced with a long random string loaded from an environment variable in production.
+> ⚠️ `SECRET_KEY` should be replaced with a long random string loaded from an environment variable in production.
 
 ---
 
 ## 🗺️ Roadmap
 
-- **Stage 2** — Real-time messaging via Server-Sent Events (SSE) + CLI client
+- **Stage 3** — Persistent SSE key, multi-device support, message history on reconnect
 
 ---
 

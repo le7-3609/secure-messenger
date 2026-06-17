@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Secure Messenger</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
+  <style>
+    body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    main { width: 100%; max-width: 400px; padding: 2rem; }
+    h1 { text-align: center; margin-bottom: 2rem; }
+    .actions { display: flex; gap: 0.5rem; }
+    .actions button { flex: 1; }
+    #toast-container { position: fixed; bottom: 1.5rem; right: 1.5rem; display: flex; flex-direction: column; gap: 0.5rem; z-index: 999; }
+    .toast { padding: 0.75rem 1.25rem; border-radius: 6px; color: #fff; font-size: 0.9rem; opacity: 1; transition: opacity 0.4s; }
+    .toast.success { background: #2d6a4f; }
+    .toast.error   { background: #9b2226; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>🔐 Secure Messenger</h1>
+    <form id="auth-form">
+      <label>Username
+        <input type="text" id="username" autocomplete="username" minlength="3" maxlength="50" required />
+      </label>
+      <label>Password
+        <input type="password" id="password" autocomplete="current-password" minlength="6" required />
+      </label>
+      <div class="actions">
+        <button type="submit" id="btn-login">Login</button>
+        <button type="button" id="btn-register" class="secondary">Register</button>
+      </div>
+    </form>
+  </main>
+
+  <div id="toast-container"></div>
+  <script src="/static/app.js"></script>
+  <script>
+    const form     = document.getElementById("auth-form");
+    const btnLogin = document.getElementById("btn-login");
+    const btnReg   = document.getElementById("btn-register");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      await handleLogin();
+    });
+
+    btnReg.addEventListener("click", async () => {
+      await handleRegister();
+    });
+
+    async function handleRegister() {
+      const username = document.getElementById("username").value.trim();
+      const password = document.getElementById("password").value;
+      const ok = await apiRegister(username, password);
+      if (ok) {
+        showToast("Registered! Logging in…", "success");
+        await doLogin(username, password);
+      }
+    }
+
+    async function handleLogin() {
+      const username = document.getElementById("username").value.trim();
+      const password = document.getElementById("password").value;
+      await doLogin(username, password);
+    }
+
+    async function doLogin(username, password) {
+      const token = await apiLogin(username, password);
+      if (token) {
+        sessionStorage.setItem("token", token);
+        sessionStorage.setItem("username", username);
+        window.location.href = "/chat";
+      }
+    }
+  </script>
+</body>
+</html>
